@@ -1,0 +1,15 @@
+[project]
+name = "bundeswehr-dienstplan"
+version = "0.1.0"
+description = "Bundeswehr Dienstplan SaaS"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "asyncpg",
+    "pydantic",
+    "httpx",
+    "python-jose",
+    "passlib",
+]
