@@ -5,10 +5,11 @@ from sqlalchemy import select, or_
 from uuid import UUID
 from datetime import datetime
 
-from ..schemas.soldat import SoldatCreate, SoldatUpdate, SoldatResponse
-from ...db.session import get_session
-from ...db.models import Soldat as SoldatModel, Tenant
-from ...dependencies.permissions import require_permission
+from apps.api.schemas.soldat import SoldatCreate, SoldatUpdate, SoldatResponse
+from apps.db.session import get_session
+from apps.db.models import Soldat as SoldatModel, Tenant
+from pydantic import field_validator
+from apps.dependencies.permissions import require_permission
 
 router = APIRouter(prefix="/soldaten", tags=["soldaten"])
 

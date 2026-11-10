@@ -6,9 +6,9 @@ from uuid import UUID
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from ..schemas.dienstplan import DienstplanCreate, DienstplanResponse, SchichtCreate, SchichtResponse
-from ...db.session import get_session
-from ...db.models import Dienstplan as DienstplanModel, Schicht as SchichtModel, Soldat as SoldatModel
+from apps.api.schemas.dienstplan import DienstplanCreate, DienstplanResponse, SchichtCreate, SchichtResponse
+from apps.db.session import get_session
+from apps.db.models import Dienstplan as DienstplanModel, Schicht as SchichtModel, Soldat as SoldatModel
 
 router = APIRouter(prefix="/dienstplaene", tags=["dienstplaene"])
 

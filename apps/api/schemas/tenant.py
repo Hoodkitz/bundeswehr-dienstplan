@@ -1,8 +1,8 @@
 """Pydantic schemas for Tenant."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
-from ..core.models import Tenant
+from apps.core.models import Tenant
 
 
 class TenantCreate(BaseModel):

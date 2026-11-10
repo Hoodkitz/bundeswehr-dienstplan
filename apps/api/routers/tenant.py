@@ -5,9 +5,9 @@ from sqlalchemy import select
 from uuid import UUID
 from datetime import datetime
 
-from ..schemas.tenant import TenantCreate, TenantResponse
-from ...db.session import get_session
-from ...db.models import Tenant as TenantModel
+from apps.api.schemas.tenant import TenantCreate, TenantResponse
+from apps.db.session import get_session
+from apps.db.models import Tenant as TenantModel
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 

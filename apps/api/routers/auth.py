@@ -4,12 +4,12 @@ from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from ..schemas.auth import TokenResponse, LoginRequest
-from ...core.config import settings
+from apps.api.schemas.auth import TokenResponse, LoginRequest
+from apps.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(token="fake-token", tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def verify_password(plain, hashed):

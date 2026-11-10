@@ -1,8 +1,8 @@
 """Pydantic schemas for Soldat."""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
 from datetime import datetime
-from ..core.models import SoldatBase, Dienstgrad
+from apps.core.models import SoldatBase, Dienstgrad
 
 
 class SoldatCreate(BaseModel):
