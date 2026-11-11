@@ -3,7 +3,18 @@ import uuid
 from datetime import date, datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+
+
+def _naive_local(v: datetime) -> datetime:
+    if v.tzinfo is not None:
+        raise ValueError("Zeit ohne Zeitzone angeben (Ortszeit der Einheit, z. B. 2026-11-16T07:00:00)")
+    return v
+
+
+LocalDateTime = Annotated[datetime, AfterValidator(_naive_local)]
 
 from apps.core.enums import AbwesenheitTyp, AusnahmeModus, DatevFormat, Dienstgrad, SchichtTyp
 
@@ -48,6 +59,7 @@ class SoldatUpdate(BaseModel):
 
 class SoldatOut(ORM):
     id: uuid.UUID
+    user_sub: str | None = None
     personalnummer: str
     dienstgrad: str
     vorname: str
@@ -60,8 +72,8 @@ class SoldatOut(ORM):
 class AbwesenheitCreate(BaseModel):
     soldat_id: uuid.UUID
     typ: AbwesenheitTyp
-    start: datetime
-    ende: datetime
+    start: LocalDateTime
+    ende: LocalDateTime
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -80,8 +92,8 @@ class AbwesenheitOut(ORM):
 
 class SchichtIn(BaseModel):
     typ: SchichtTyp = SchichtTyp.GRUNDDIENST
-    start: datetime
-    ende: datetime
+    start: LocalDateTime
+    ende: LocalDateTime
     erforderliche_qualifikation: str | None = None
     ort: str | None = None
     anzahl: int = Field(default=1, ge=1, le=50, description="Soll-Personal fuer diesen Dienstposten")
@@ -142,7 +154,7 @@ class RosterJobOut(ORM):
 
 
 class ReplanRequest(BaseModel):
-    referenzzeit: datetime | None = None
+    referenzzeit: LocalDateTime | None = None
 
 
 class MyShift(BaseModel):

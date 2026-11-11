@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint, Uuid, Index, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -27,7 +27,9 @@ class Tenant(Base):
 
 class Soldat(Base):
     __tablename__ = "soldaten"
-    __table_args__ = (UniqueConstraint("tenant_id", "personalnummer"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "personalnummer"),
+                      Index("uq_soldaten_tenant_user_sub", "tenant_id", "user_sub", unique=True,
+                            postgresql_where=text("user_sub IS NOT NULL"), sqlite_where=text("user_sub IS NOT NULL")))
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), index=True)
     personalnummer: Mapped[str] = mapped_column(String(50))

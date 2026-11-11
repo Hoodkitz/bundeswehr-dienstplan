@@ -48,9 +48,35 @@ def to_domain(s: Schicht) -> c.Shift:
                    str(s.soldat_id) if s.soldat_id else None, s.pinned)
 
 
+class Aborted(Exception):
+    """Der Lauf wurde waehrenddessen abgebrochen (z. B. vom Planer)."""
+
+
 async def _step(session: AsyncSession, job: RosterJob, target: S) -> None:
+    # Status frisch und gesperrt lesen: ein zwischenzeitliches CANCELLED darf nie ueberschrieben werden.
+    await session.refresh(job, ["status"], with_for_update=True)
+    if job.status == S.CANCELLED.value:
+        raise Aborted()
     job.status = check_transition(job.status, target).value
     await session.commit()
+
+
+async def load_context_shifts(session: AsyncSession, tenant_id, exclude_job_id, start: datetime,
+                              end: datetime) -> list[c.Shift]:
+    """Bereits veroeffentlichte Schichten anderer Plaene im (um einen Tag erweiterten) Zeitraum – als fixierter
+    Kontext, damit Ruhezeit, Tages-/Wochenstunden und Doppelbelegung planuebergreifend gelten."""
+    rows = (await session.execute(
+        select(Schicht).join(RosterJob, Schicht.job_id == RosterJob.id).where(
+            Schicht.tenant_id == tenant_id, RosterJob.id != exclude_job_id, RosterJob.status == S.PUBLISHED.value,
+            Schicht.soldat_id.is_not(None), Schicht.ende > start - timedelta(days=7), Schicht.start < end + timedelta(days=7))
+    )).scalars().all()
+    out = []
+    for r in rows:
+        sh = to_domain(r)
+        sh.id = "ctx:" + sh.id
+        sh.pinned = True
+        out.append(sh)
+    return out
 
 
 async def run_pipeline(tenant_id: uuid.UUID, job_id: uuid.UUID, start_at: S = S.DATA_FETCHING) -> None:
@@ -62,6 +88,8 @@ async def run_pipeline(tenant_id: uuid.UUID, job_id: uuid.UUID, start_at: S = S.
             return
         try:
             await _run(session, job, start_at)
+        except Aborted:
+            await session.rollback()
         except Exception as e:  # Worker darf nie haengen bleiben; Fehler im Job sichtbar machen
             log.exception("Planungslauf %s fehlgeschlagen", job_id)
             await session.rollback()
@@ -77,14 +105,16 @@ async def _run(session: AsyncSession, job: RosterJob, start_at: S) -> None:
     period_start = datetime.combine(job.zeitraum_start, time.min)
     period_end = datetime.combine(job.zeitraum_ende, time.max)
     soldiers = await load_soldiers(session, job.tenant_id, period_start, period_end)
-    shifts = [to_domain(s) for s in job.schichten]
+    own_shifts = [to_domain(s) for s in job.schichten]
+    context = await load_context_shifts(session, job.tenant_id, job.id, period_start, period_end)
+    shifts = own_shifts + context
 
     if start_at == S.DATA_FETCHING:
         await _step(session, job, S.CONSTRAINT_VALIDATION)
         warnings = []
         if not soldiers:
             warnings.append("Keine Soldaten im Mandanten erfasst")
-        for sh in shifts:
+        for sh in own_shifts:
             if sh.required_qualification and not any(
                 sh.required_qualification in so.qualifications
                 and not any(a.is_hard and sh.overlaps(a.start, a.end) for a in so.absences)
@@ -92,7 +122,7 @@ async def _run(session: AsyncSession, job: RosterJob, start_at: S) -> None:
             ):
                 warnings.append(f"Schicht {sh.start:%d.%m. %H:%M}: niemand mit '{sh.required_qualification}' verfuegbar")
         job.warnings = warnings
-        if not shifts or not soldiers:
+        if not own_shifts or not soldiers:
             job.status = check_transition(job.status, S.FAILED).value
             job.warnings = warnings or ["Keine Schichten definiert"]
             await session.commit()
@@ -109,7 +139,8 @@ async def _run(session: AsyncSession, job: RosterJob, start_at: S) -> None:
     job.violations = [v.as_dict() for v in result.violations if v.level != c.SOFT]
     await _step(session, job, S.HARDFEASIBILITY_CHECK)
 
-    unbesetzt = sum(1 for s in result.shifts if s.soldat_id is None)
+    own_result = [s for s in result.shifts if not s.id.startswith("ctx:")]
+    unbesetzt = sum(1 for s in own_result if s.soldat_id is None)
     if not result.score.feasible or unbesetzt:
         # Unzulaessig oder unvollstaendig -> manuelle Nachbearbeitung durch den Planer
         if unbesetzt:
@@ -117,7 +148,7 @@ async def _run(session: AsyncSession, job: RosterJob, start_at: S) -> None:
         await _step(session, job, S.MANUAL_REVIEW)
         return
     await _step(session, job, S.SIMULATION_REVIEW)
-    job.stats = workload_stats(result.shifts, soldiers)
+    job.stats = workload_stats(own_result, soldiers)
     await _step(session, job, S.COMMAND_APPROVAL_INTERRUPT)
 
 

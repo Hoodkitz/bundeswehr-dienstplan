@@ -1,7 +1,7 @@
 """Schreiben ins Hash-verkettete Audit-Log."""
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.db.models import AuditLog, utcnow
@@ -9,6 +9,9 @@ from apps.domain.audit import GENESIS, entry_hash
 
 
 async def append(session: AsyncSession, tenant_id: uuid.UUID, action: str, actor: str, payload: dict) -> AuditLog:
+    if session.bind.dialect.name == "postgresql":
+        # Serialisiert parallele Schreiber je Mandant (API + Worker): sonst kollidiert MAX(seq)+1 auf UNIQUE.
+        await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:t))"), {"t": "audit:" + str(tenant_id)})
     last = (await session.execute(
         select(AuditLog).where(AuditLog.tenant_id == tenant_id).order_by(AuditLog.seq.desc()).limit(1)
     )).scalar_one_or_none()

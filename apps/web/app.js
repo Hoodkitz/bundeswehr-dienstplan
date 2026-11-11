@@ -174,10 +174,13 @@ const TABS = [
   {id: "daten", label: "Meine Daten", perm: "self:service", render: renderDaten},
 ];
 async function start() {
-  S.perms = new Set((S.claims.roles || []).flatMap(r => PERMS[r] || []));
+  // Rollen aus demselben Claim wie der Server (z. B. Keycloak realm_access.roles)
+  const roles = (cfg.roles_claim || "roles").split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), S.claims);
+  S.roles = Array.isArray(roles) ? roles : [];
+  S.perms = new Set(S.roles.flatMap(r => PERMS[r] || []));
   $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); $("#logout").classList.remove("hidden");
   try { S.tenant = await api("/api/v1/tenants/current"); } catch { S.tenant = null; }
-  $("#who").innerHTML = `<b>${esc(S.tenant ? S.tenant.name : "Einheit")}</b> · ${esc(S.claims.sub)} · ${esc((S.claims.roles || []).join(", "))}`;
+  $("#who").innerHTML = `<b>${esc(S.tenant ? S.tenant.name : "Einheit")}</b> · ${esc(S.claims.sub)} · ${esc(S.roles.join(", "))}`;
   if (can("soldat:read")) await loadSoldaten();
   const tabs = TABS.filter(t => [].concat(t.perm).some(can));
   $("#tabs").innerHTML = tabs.map(t => `<button type="button" data-tab="${t.id}">${esc(t.label)}</button>`).join("");
@@ -386,7 +389,7 @@ async function renderAbwesenheiten() {
       <div class="row end"><button class="primary" type="submit">Eintragen</button></div>
       <p class="muted full">Krankmeldungen enthalten keine Diagnose – nur den Zeitraum (Datensparsamkeit).</p></form>` : ""}
     <div class="card"><h2>Abwesenheiten</h2><div class="scroll"><table><thead><tr><th>Soldat</th><th>Art</th><th>Von</th><th>Bis</th></tr></thead><tbody>
-      ${rows.map(a => `<tr><td>${esc(name(a.soldat_id))}</td><td>${esc(ABW[a.typ] || a.typ)}</td><td>${fmtDate(a.start)}</td><td>${fmtDate(a.ende)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Keine Abwesenheiten erfasst.</td></tr>`}
+      ${rows.map(a => `<tr><td>${esc(name(a.soldat_id))}</td><td>${esc(ABW[a.typ] || a.typ)}</td><td>${fmtDate(a.start)}</td><td>${fmtDate(a.ende.slice(11, 16) === "00:00" ? addDays(a.ende.slice(0, 10), -1) : a.ende)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Keine Abwesenheiten erfasst.</td></tr>`}
     </tbody></table></div></div>`;
   if (can("abwesenheit:write")) $("#af").onsubmit = async e => {
     e.preventDefault();

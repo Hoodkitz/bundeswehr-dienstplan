@@ -183,7 +183,7 @@ def unbesetzte_schicht(shifts: list[Shift]) -> list[Violation]:
 
 
 def bereitschafts_deckelung(shifts: list[Shift], soldiers: dict[str, Soldier], rules: RuleSet) -> list[Violation]:
-    """§ 12/13 SAZV – Wochenhoechstarbeitszeit (Medium)."""
+    """§ 12/13 SAZV – Wochenhoechstarbeitszeit (Hard: ein Plan darf sie nicht ueberschreiten)."""
     if rules.weekly_cap_hours is None:
         return []
     out = []
@@ -197,7 +197,7 @@ def bereitschafts_deckelung(shifts: list[Shift], soldiers: dict[str, Soldier], r
             per_week[tuple(s.start.isocalendar())[:2]] += s.hours
         for week, total in per_week.items():
             if total > cap:
-                out.append(Violation("bereitschaftsDeckelung", MEDIUM, math.ceil(total - cap), sid, [],
+                out.append(Violation("bereitschaftsDeckelung", HARD, math.ceil(total - cap), sid, [],
                                      f"KW {week[1]}/{week[0]}: {total:.1f}h > {cap}h"))
     return out
 
@@ -276,6 +276,14 @@ def can_take(shift: Shift, soldier: Soldier, assigned: list[Shift], rules: RuleS
             day_hours += o.hours
     if rules.max_daily_hours is not None and day_hours > rules.max_daily_hours:
         return False
+    if rules.weekly_cap_hours is not None:
+        cap = rules.weekly_cap_hours
+        if soldier.sanitaet_opt_out and rules.weekly_cap_sanitaet_opt_out:
+            cap = rules.weekly_cap_sanitaet_opt_out
+        week = tuple(shift.start.isocalendar())[:2]
+        week_hours = shift.hours + sum(o.hours for o in assigned if tuple(o.start.isocalendar())[:2] == week)
+        if week_hours > cap:
+            return False
     return True
 
 

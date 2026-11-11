@@ -20,6 +20,18 @@ from apps.services import audit, roster as svc
 router = APIRouter(prefix="/api/v1", tags=["roster"])
 
 
+async def _local_now(db: AsyncSession, tenant_id) -> datetime:
+    """Schichtzeiten sind Ortszeit der Einheit (naiv gespeichert) – 'jetzt' muss dieselbe Uhr verwenden."""
+    from zoneinfo import ZoneInfo
+    from apps.db.models import Tenant
+    t = await db.get(Tenant, tenant_id)
+    try:
+        tz = ZoneInfo(t.timezone if t and t.timezone else "Europe/Berlin")
+    except Exception:
+        tz = ZoneInfo("Europe/Berlin")
+    return datetime.now(tz).replace(tzinfo=None)
+
+
 async def _job(db: AsyncSession, user: CurrentUser, job_id: uuid.UUID) -> RosterJob:
     job = await svc.load_job(db, user.tenant_id, job_id)
     if job is None:
@@ -100,7 +112,7 @@ async def replan_job(job_id: uuid.UUID, req: ReplanRequest, background: Backgrou
         job.status = check_transition(job.status, S.REALTIME_REPLANNING).value
     except InvalidTransition as e:
         raise HTTPException(409, str(e))
-    now = req.referenzzeit or utcnow()
+    now = req.referenzzeit or await _local_now(db, user.tenant_id)
     svc.pin_for_replanning(job, now)
     # Schichten eines inzwischen abwesenden Soldaten nie fixieren
     soldiers = {s.id: s for s in await svc.load_soldiers(db, user.tenant_id, min(x.start for x in job.schichten),
@@ -129,7 +141,7 @@ async def my_shifts(response: Response, user: CurrentUser = Depends(require(P.MY
         nxt = rows[i + 1] if i + 1 < len(rows) else None
         out.append(MyShift(schicht_id=s.id, job_id=s.job_id, typ=s.typ, start=s.start, ende=s.ende, ort=s.ort,
                            ruhezeit_bis_naechste_h=round((nxt.start - s.ende).total_seconds() / 3600, 2) if nxt else None))
-    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Cache-Control"] = "no-store"  # nach Tausch/Umplanung sofort aktuell
     return out
 
 
@@ -145,7 +157,7 @@ async def create_trade(req: TradeCreate, user: CurrentUser = Depends(require(P.T
     job = await db.get(RosterJob, schicht.job_id)
     if job.status != S.PUBLISHED.value:
         raise HTTPException(409, "Nur Schichten veroeffentlichter Plaene sind tauschbar")
-    if schicht.start <= utcnow():
+    if schicht.start <= await _local_now(db, user.tenant_id):
         raise HTTPException(409, "Schicht hat bereits begonnen")
     if req.an_soldat_id is None and req.an_personalnummer:
         kamerad = (await db.execute(select(Soldat).where(Soldat.tenant_id == user.tenant_id,
@@ -193,10 +205,20 @@ async def accept_trade(trade_id: uuid.UUID, user: CurrentUser = Depends(require(
         raise HTTPException(403, "Anfrage richtet sich an einen anderen Kameraden")
     if t.status != TradeStatus.OFFEN.value:
         raise HTTPException(409, f"Anfrage ist bereits {t.status}")
+    await _trade_still_possible(db, user, t)
     t.status = TradeStatus.ANGENOMMEN.value
     await audit.append(db, user.tenant_id, "trade.accepted", user.sub, {"trade_id": t.id})
     await db.commit()
     return t
+
+
+async def _trade_still_possible(db: AsyncSession, user: CurrentUser, t: TradeRequest) -> None:
+    schicht = await get_owned(db, Schicht, t.schicht_id, user, "Schicht")
+    job = await db.get(RosterJob, schicht.job_id)
+    if job is None or job.status != S.PUBLISHED.value:
+        raise HTTPException(409, "Plan ist nicht (mehr) veroeffentlicht – Tausch nicht moeglich")
+    if schicht.start <= await _local_now(db, user.tenant_id):
+        raise HTTPException(409, "Schicht hat bereits begonnen")
 
 
 @router.post("/roster/trades/{trade_id}/decide", response_model=TradeOut)
@@ -211,13 +233,15 @@ async def decide_trade(trade_id: uuid.UUID, req: TradeDecision, user: CurrentUse
     else:
         if t.status != TradeStatus.ANGENOMMEN.value:
             raise HTTPException(409, "Kamerad hat noch nicht zugestimmt")
+        await _trade_still_possible(db, user, t)
         schicht = await get_owned(db, Schicht, t.schicht_id, user, "Schicht")
         if schicht.soldat_id != t.von_soldat_id:
             raise HTTPException(409, "Schicht wurde zwischenzeitlich umgeplant")
         job = await svc.load_job(db, user.tenant_id, schicht.job_id)
         shifts = [svc.to_domain(s) for s in job.schichten]
-        soldiers = {s.id: s for s in await svc.load_soldiers(db, user.tenant_id, min(x.start for x in shifts),
-                                                             max(x.end for x in shifts))}
+        lo, hi = min(x.start for x in shifts), max(x.end for x in shifts)
+        shifts += await svc.load_context_shifts(db, user.tenant_id, job.id, lo, hi)  # andere veroeffentlichte Plaene
+        soldiers = {s.id: s for s in await svc.load_soldiers(db, user.tenant_id, lo, hi)}
         for s in shifts:
             if s.id == str(schicht.id):
                 s.soldat_id = str(t.an_soldat_id)

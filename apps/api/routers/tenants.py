@@ -44,4 +44,4 @@ async def login_config():
     from apps.core.config import settings
     return {"oidc": {"issuer": settings.OIDC_ISSUER, "client_id": settings.OIDC_CLIENT_ID,
                      "scope": settings.OIDC_SCOPE} if settings.OIDC_JWKS_URL and settings.OIDC_CLIENT_ID else None,
-            "dev_login": settings.dev_endpoints_enabled}
+            "dev_login": settings.dev_endpoints_enabled, "roles_claim": settings.OIDC_ROLES_CLAIM}

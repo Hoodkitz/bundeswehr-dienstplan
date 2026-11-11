@@ -31,7 +31,6 @@ async def _reset():
             names = ", ".join(t.name for t in Base.metadata.sorted_tables)
             await conn.execute(text(f"TRUNCATE {names} CASCADE"))
         await owner.dispose()
-        await engine.dispose()  # drop pooled connections from the previous test's event loop
         return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

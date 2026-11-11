@@ -3,11 +3,14 @@ from collections.abc import AsyncIterator
 
 from sqlalchemy import event, text
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from apps.core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, future=True)
+# Tests drive the app from several event loops; pooled asyncpg connections must not outlive their loop.
+engine = create_async_engine(settings.DATABASE_URL, future=True,
+                             **({"poolclass": NullPool} if settings.ENV == "test" else {}))
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

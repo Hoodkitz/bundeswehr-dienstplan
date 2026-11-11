@@ -23,7 +23,7 @@ async def create_soldat(req: SoldatCreate, user: CurrentUser = Depends(require(P
     try:
         await db.flush()
     except IntegrityError:
-        raise HTTPException(409, "Personalnummer existiert bereits")
+        raise HTTPException(409, "Personalnummer oder Login-Kennung ist bereits vergeben")
     await audit.append(db, user.tenant_id, "soldat.created", user.sub, {"soldat_id": s.id})
     await db.commit()
     return s
@@ -52,6 +52,10 @@ async def update_soldat(soldat_id: uuid.UUID, req: SoldatUpdate, user: CurrentUs
     changes = req.model_dump(exclude_unset=True, mode="json")
     for k, v in changes.items():
         setattr(s, k, v)
+    try:
+        await db.flush()
+    except IntegrityError:
+        raise HTTPException(409, "Login-Kennung ist bereits einem anderen Soldaten zugeordnet")
     await audit.append(db, user.tenant_id, "soldat.updated", user.sub, {"soldat_id": s.id, "felder": sorted(changes)})
     await db.commit()
     return s

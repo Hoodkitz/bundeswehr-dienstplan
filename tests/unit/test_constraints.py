@@ -62,7 +62,7 @@ def test_abwesenheit_hart_und_wunsch_weich():
 def test_wochendeckel_48h_und_sanitaet_opt_out():
     shifts = [sh(i, dt(2026, 4, 6 + i, 6), dt(2026, 4, 6 + i, 16)) for i in range(5)]  # 50h, KW 15
     v = c.bereitschafts_deckelung(shifts, {"A": c.Soldier("A")}, RULES)
-    assert len(v) == 1 and v[0].level == c.MEDIUM and v[0].penalty == 2
+    assert len(v) == 1 and v[0].level == c.HARD and v[0].penalty == 2
     assert c.bereitschafts_deckelung(shifts, {"A": c.Soldier("A", sanitaet_opt_out=True)}, RULES) == []
 
 

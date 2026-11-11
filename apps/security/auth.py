@@ -61,8 +61,16 @@ class _JWKSCache:
     def _fetch(self) -> None:
         with urllib.request.urlopen(self.url, timeout=self.TIMEOUT) as r:  # noqa: S310 - fixed admin-configured URL
             data = json.loads(r.read(1_000_000))
-        self.keys = {k["kid"]: jwt.PyJWK(k) for k in data.get("keys", []) if k.get("kid") and k.get("use", "sig") == "sig"}
-        self.fetched = time.monotonic()
+        self.fetched = time.monotonic()  # also on partial failure: back-off always applies
+        keys = {}
+        for k in data.get("keys", []):
+            if not k.get("kid") or k.get("use", "sig") != "sig":
+                continue
+            try:
+                keys[k["kid"]] = jwt.PyJWK(k)
+            except jwt.PyJWTError:
+                continue  # unsupported key type: skip it, keep the others
+        self.keys = keys
 
     def get_signing_key_from_jwt(self, token: str) -> jwt.PyJWK:
         kid = jwt.get_unverified_header(token).get("kid")
