@@ -24,6 +24,7 @@ async def _scenario():
         a, b = uuid.uuid4(), uuid.uuid4()
         now = datetime.utcnow()
         for t in (a, b):
+            await _as(conn, t)  # a tenant row can only be created under its own context
             await conn.execute("INSERT INTO tenants (id, name, security_classification, timezone, created_at) VALUES ($1, 'T', 'VS-NfD', 'Europe/Berlin', $2)", t, now)
         await _as(conn, a)
         await conn.execute("INSERT INTO soldaten (id, tenant_id, personalnummer, dienstgrad, vorname, nachname, qualifikationen, sanitaet_opt_out, created_at) VALUES ($1, $2, 'P1', 'OGefr', 'A', 'B', '[]', false, $3)", uuid.uuid4(), a, now)
@@ -33,6 +34,8 @@ async def _scenario():
         with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
             await conn.execute("INSERT INTO soldaten (id, tenant_id, personalnummer, dienstgrad, vorname, nachname, qualifikationen, sanitaet_opt_out, created_at) VALUES ($1, $2, 'P1', 'OGefr', 'A', 'B', '[]', false, $3)", uuid.uuid4(), a, now)  # writing into another tenant
         await _as(conn, None)
+        tenants_visible = await conn.fetchval("SELECT count(*) FROM tenants")
+        assert tenants_visible == 0
         rows_without_context = await conn.fetchval("SELECT count(*) FROM soldaten")
         return rows_a, rows_seen_by_b, rows_without_context
     finally:
