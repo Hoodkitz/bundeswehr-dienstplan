@@ -4,6 +4,10 @@ Die Authentifizierung selbst (OIDC Authorization Code + PKCE, Spec Kap. 8) finde
 Identity Provider statt. Diese API validiert nur Bearer-Tokens und wertet die Claims
 `sub`, `tenant_id` und `roles` aus. Ein Password-Grant existiert bewusst nicht.
 """
+import json
+import threading
+import time
+import urllib.request
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -11,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +48,38 @@ def issue_token(sub: str, tenant_id: str | uuid.UUID, roles: list[str], minutes:
     return jwt.encode(claims, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-_jwks: jwt.PyJWKClient | None = None
+class _JWKSCache:
+    """IdP signing keys, cached. An unknown kid triggers at most one refetch per REFRESH_MIN seconds, so forged
+    tokens with random kids cannot make the API hammer the IdP or block on network I/O."""
+    REFRESH_MIN = 60
+    TIMEOUT = 5
+
+    def __init__(self, url: str):
+        self.url, self.keys, self.fetched = url, {}, 0.0
+        self._lock = threading.Lock()
+
+    def _fetch(self) -> None:
+        with urllib.request.urlopen(self.url, timeout=self.TIMEOUT) as r:  # noqa: S310 - fixed admin-configured URL
+            data = json.loads(r.read(1_000_000))
+        self.keys = {k["kid"]: jwt.PyJWK(k) for k in data.get("keys", []) if k.get("kid") and k.get("use", "sig") == "sig"}
+        self.fetched = time.monotonic()
+
+    def get_signing_key_from_jwt(self, token: str) -> jwt.PyJWK:
+        kid = jwt.get_unverified_header(token).get("kid")
+        if kid not in self.keys:
+            with self._lock:
+                if kid not in self.keys and time.monotonic() - self.fetched >= self.REFRESH_MIN:
+                    try:
+                        self._fetch()
+                    except (OSError, ValueError) as e:
+                        self.fetched = time.monotonic()  # back off on IdP outage as well
+                        raise jwt.PyJWKClientError(f"JWKS fetch failed: {e.__class__.__name__}") from e
+        if kid not in self.keys:
+            raise jwt.PyJWKClientError("unknown signing key")
+        return self.keys[kid]
+
+
+_jwks: _JWKSCache | None = None
 
 
 def _claim(c: dict, path: str):
@@ -59,7 +95,7 @@ def _verify(token: str) -> dict:
     if settings.OIDC_JWKS_URL:
         global _jwks
         if _jwks is None:
-            _jwks = jwt.PyJWKClient(settings.OIDC_JWKS_URL, cache_keys=True, lifespan=3600)
+            _jwks = _JWKSCache(settings.OIDC_JWKS_URL)
         key = _jwks.get_signing_key_from_jwt(token).key
         algs = [a.strip() for a in settings.OIDC_ALGORITHMS.split(",") if a.strip()]
         return jwt.decode(token, key, algorithms=algs, audience=settings.JWT_AUDIENCE, issuer=settings.OIDC_ISSUER,
@@ -89,6 +125,8 @@ async def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(b
     if cred is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Nicht authentifiziert",
                             headers={"WWW-Authenticate": "Bearer"})
+    if settings.OIDC_JWKS_URL:  # may touch the network (key refresh): keep the event loop free
+        return await run_in_threadpool(decode_token, cred.credentials)
     return decode_token(cred.credentials)
 
 

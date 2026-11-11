@@ -51,3 +51,14 @@ def test_foreign_key_and_hs256_rejected_when_jwks_configured(idp):
         auth.decode_token(auth.issue_token("x", tid, ["admin"]))
     with pytest.raises(HTTPException):
         auth.decode_token(idp({"tenant_id": tid, "aud": "someone-else"}))
+
+
+def test_unknown_kid_refetch_is_rate_limited(monkeypatch):
+    calls = []
+    cache = auth._JWKSCache("https://idp.example/certs")
+    monkeypatch.setattr(cache, "_fetch", lambda: calls.append(1) or setattr(cache, "fetched", __import__("time").monotonic()))
+    tok = jwt.encode({"a": 1}, "x" * 32, algorithm="HS256", headers={"kid": "nope"})
+    for _ in range(20):
+        with pytest.raises(jwt.PyJWKClientError):
+            cache.get_signing_key_from_jwt(tok)
+    assert len(calls) == 1
