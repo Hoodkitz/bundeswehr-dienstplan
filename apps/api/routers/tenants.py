@@ -7,7 +7,7 @@ from apps.api.schemas import TenantCreate, TenantOut
 from apps.core.permissions import Permission as P
 from apps.db.models import Tenant
 from apps.db.session import set_tenant_context
-from apps.security.auth import CurrentUser, get_db, require
+from apps.security.auth import CurrentUser, get_current_user, get_db, require
 from apps.services import audit
 
 router = APIRouter(prefix="/api/v1/tenants", tags=["tenants"])
@@ -26,8 +26,22 @@ async def create_tenant(req: TenantCreate, user: CurrentUser = Depends(require(P
 
 
 @router.get("/current", response_model=TenantOut)
-async def current_tenant(user: CurrentUser = Depends(require(P.SOLDAT_READ)), db: AsyncSession = Depends(get_db)):
+async def current_tenant(user: CurrentUser = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Name/Stammdaten der eigenen Einheit – fuer jede angemeldete Rolle (Kopfzeile der App)."""
     t = await db.get(Tenant, user.tenant_id)
     if t is None:
         raise HTTPException(404, "Mandant nicht gefunden")
     return t
+
+
+auth_config = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+@auth_config.get("/config")
+async def login_config():
+    """What the web app needs to log in: the customer's OIDC IdP (Authorization Code + PKCE) and, only in dev/test,
+    the local development login."""
+    from apps.core.config import settings
+    return {"oidc": {"issuer": settings.OIDC_ISSUER, "client_id": settings.OIDC_CLIENT_ID,
+                     "scope": settings.OIDC_SCOPE} if settings.OIDC_JWKS_URL and settings.OIDC_CLIENT_ID else None,
+            "dev_login": settings.dev_endpoints_enabled}

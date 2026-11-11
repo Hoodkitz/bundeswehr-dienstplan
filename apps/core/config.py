@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     OIDC_JWKS_URL: str = ""              # e.g. https://idp.example/realms/bw/protocol/openid-connect/certs
     OIDC_ALGORITHMS: str = "RS256,ES256"
     OIDC_TENANT_CLAIM: str = "tenant_id"  # claim carrying the tenant UUID (IdP mapper)
-    OIDC_ROLES_CLAIM: str = "roles"       # dotted path allowed, e.g. realm_access.roles
+    OIDC_ROLES_CLAIM: str = "roles"
+    OIDC_CLIENT_ID: str = ""              # public SPA client at the IdP (PKCE, no secret)
+    OIDC_SCOPE: str = "openid profile"       # dotted path allowed, e.g. realm_access.roles
 
     CORS_ORIGINS: str = "http://localhost:3000"
     SOLVER_TIME_LIMIT_SECONDS: float = 5.0

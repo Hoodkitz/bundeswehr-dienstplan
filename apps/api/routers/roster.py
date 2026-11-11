@@ -147,6 +147,14 @@ async def create_trade(req: TradeCreate, user: CurrentUser = Depends(require(P.T
         raise HTTPException(409, "Nur Schichten veroeffentlichter Plaene sind tauschbar")
     if schicht.start <= utcnow():
         raise HTTPException(409, "Schicht hat bereits begonnen")
+    if req.an_soldat_id is None and req.an_personalnummer:
+        kamerad = (await db.execute(select(Soldat).where(Soldat.tenant_id == user.tenant_id,
+                                                         Soldat.personalnummer == req.an_personalnummer.strip()))).scalar_one_or_none()
+        if kamerad is None:
+            raise HTTPException(404, "Kamerad mit dieser Personalnummer nicht gefunden")
+        req.an_soldat_id = kamerad.id
+    if req.an_soldat_id is None:
+        raise HTTPException(422, "Kamerad angeben (Personalnummer)")
     await get_owned(db, Soldat, req.an_soldat_id, user, "Kamerad")
     if req.an_soldat_id == me.id:
         raise HTTPException(422, "Tausch mit sich selbst nicht moeglich")
@@ -166,6 +174,14 @@ async def list_trades(user: CurrentUser = Depends(require(P.TRADE_REQUEST)),
     return (await db.execute(select(TradeRequest).where(
         TradeRequest.tenant_id == user.tenant_id,
         (TradeRequest.von_soldat_id == me.id) | (TradeRequest.an_soldat_id == me.id)))).scalars().all()
+
+
+@router.get("/roster/trades/pending", response_model=list[TradeOut])
+async def pending_trades(user: CurrentUser = Depends(require(P.TRADE_DECIDE)), db: AsyncSession = Depends(get_db)):
+    """Offene/angenommene Tauschanfragen der Einheit – zur Entscheidung durch Planer/Vorgesetzte."""
+    return (await db.execute(select(TradeRequest).where(
+        TradeRequest.tenant_id == user.tenant_id,
+        TradeRequest.status.in_([TradeStatus.OFFEN.value, TradeStatus.ANGENOMMEN.value])))).scalars().all()
 
 
 @router.post("/roster/trades/{trade_id}/accept", response_model=TradeOut)

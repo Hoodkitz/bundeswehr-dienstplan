@@ -44,6 +44,12 @@ async def create_datev_export(req: DatevExportCreate, background: BackgroundTask
     return entry
 
 
+@router.get("/datev", response_model=list[DatevExportOut])
+async def list_datev_exports(user: CurrentUser = Depends(require(P.EXPORT_DATEV)), db: AsyncSession = Depends(get_db)):
+    return (await db.execute(select(DatevOutbox).where(DatevOutbox.tenant_id == user.tenant_id)
+                             .order_by(DatevOutbox.created_at.desc()).limit(100))).scalars().all()
+
+
 @router.get("/datev/{export_id}", response_model=DatevExportOut)
 async def get_datev_export(export_id: uuid.UUID, user: CurrentUser = Depends(require(P.EXPORT_DATEV)),
                            db: AsyncSession = Depends(get_db)):

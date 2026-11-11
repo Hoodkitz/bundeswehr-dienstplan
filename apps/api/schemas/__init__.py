@@ -157,7 +157,8 @@ class MyShift(BaseModel):
 
 class TradeCreate(BaseModel):
     schicht_id: uuid.UUID
-    an_soldat_id: uuid.UUID
+    an_soldat_id: uuid.UUID | None = None
+    an_personalnummer: str | None = Field(default=None, max_length=50)  # Soldaten kennen keine internen IDs
     begruendung: str | None = Field(default=None, max_length=500)
 
 

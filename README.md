@@ -28,3 +28,17 @@ uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 ```bash
 python -m pytest tests/
 ```
+
+
+## Web-App (v0.3)
+
+`/app` – deutschsprachige Web-Anwendung, rollenabhängig:
+Dienstpläne (Vorlage je Wochentag → Solver → Wochenraster mit Verstößen/Hinweisen/Belastung → Freigabe durch
+Vorgesetzten → Umplanung), Personal (Qualifikationen, Login-Zuordnung), Abwesenheiten (ohne Diagnosen),
+Meine Dienste (mit Ruhezeit), Diensttausch (Antrag per Personalnummer, Annahme, Entscheidung durch Planer/Vorgesetzte),
+DATEV-Export (LODAS / Lohn und Gehalt, Download), Audit-Log (Hash-Kette geprüft), Meine Daten (DSGVO Auskunft/Löschung).
+
+Anmeldung in Produktion über den IdP der Dienststelle (OIDC Authorization Code + PKCE, z. B. Keycloak):
+`OIDC_ISSUER`, `OIDC_JWKS_URL`, `OIDC_CLIENT_ID` (öffentlicher Client, Redirect `https://<host>/app/`),
+`JWT_AUDIENCE`, `OIDC_TENANT_CLAIM` (Mapper auf die Mandanten-UUID), `OIDC_ROLES_CLAIM` (z. B. `realm_access.roles`).
+Mit `ENV=dev` gibt es zusätzlich einen lokalen Test-Login.

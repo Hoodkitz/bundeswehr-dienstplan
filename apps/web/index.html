@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dienstplan – Bundeswehr Dienstplan</title>
+<link rel="stylesheet" href="/app/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true">▣</span> Bundeswehr Dienstplan</div>
+  <div id="who" class="who"></div>
+  <button id="logout" class="ghost hidden" type="button">Abmelden</button>
+</header>
+
+<main id="main">
+  <section id="login" class="card narrow">
+    <h1>Anmeldung</h1>
+    <p class="muted">Anmeldung über den Identity Provider Ihrer Dienststelle.</p>
+    <button id="oidcLogin" class="primary hidden" type="button">Mit Dienst-Login anmelden</button>
+    <form id="devLogin" class="hidden">
+      <p class="hint">Entwicklungsmodus: lokaler Test-Login ohne Identity Provider.</p>
+      <label for="devTenant">Mandanten-ID (leer = neuen Test-Mandanten anlegen)</label>
+      <input id="devTenant" autocomplete="off" placeholder="UUID">
+      <label for="devSub">Benutzerkennung</label>
+      <input id="devSub" value="planer.mueller" required>
+      <fieldset class="roles">
+        <legend>Rollen</legend>
+        <label><input type="checkbox" value="planer" checked> Planer</label>
+        <label><input type="checkbox" value="vorgesetzter"> Vorgesetzter</label>
+        <label><input type="checkbox" value="admin" checked> Admin</label>
+        <label><input type="checkbox" value="truppenarzt"> Truppenarzt</label>
+        <label><input type="checkbox" value="soldat"> Soldat</label>
+        <label><input type="checkbox" value="audit"> Audit</label>
+      </fieldset>
+      <button class="primary" type="submit">Anmelden</button>
+    </form>
+    <p id="loginErr" class="error" role="alert"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <nav id="tabs" aria-label="Bereiche"></nav>
+    <div id="view"></div>
+  </section>
+</main>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script type="module" src="/app/app.js"></script>
+</body>
+</html>
