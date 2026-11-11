@@ -43,17 +43,41 @@ def issue_token(sub: str, tenant_id: str | uuid.UUID, roles: list[str], minutes:
     return jwt.encode(claims, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
+_jwks: jwt.PyJWKClient | None = None
+
+
+def _claim(c: dict, path: str):
+    for part in path.split("."):
+        if not isinstance(c, dict):
+            return None
+        c = c.get(part)
+    return c
+
+
+def _verify(token: str) -> dict:
+    opts = {"require": ["exp", "sub", "aud", "iss"]}
+    if settings.OIDC_JWKS_URL:
+        global _jwks
+        if _jwks is None:
+            _jwks = jwt.PyJWKClient(settings.OIDC_JWKS_URL, cache_keys=True, lifespan=3600)
+        key = _jwks.get_signing_key_from_jwt(token).key
+        algs = [a.strip() for a in settings.OIDC_ALGORITHMS.split(",") if a.strip()]
+        return jwt.decode(token, key, algorithms=algs, audience=settings.JWT_AUDIENCE, issuer=settings.OIDC_ISSUER,
+                          options=opts)
+    return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE,
+                      issuer=settings.OIDC_ISSUER, options=opts)
+
+
 def decode_token(token: str) -> CurrentUser:
     try:
-        c = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM],
-                       audience=settings.JWT_AUDIENCE, issuer=settings.OIDC_ISSUER,
-                       options={"require": ["exp", "sub", "aud", "iss"]})
-        tenant = uuid.UUID(c["tenant_id"])
+        c = _verify(token)
+        tenant = uuid.UUID(str(_claim(c, settings.OIDC_TENANT_CLAIM)))
     except (jwt.PyJWTError, KeyError, ValueError) as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Ungueltiges Token",
                             headers={"WWW-Authenticate": "Bearer"}) from e
     roles = []
-    for r in c.get("roles", []):
+    raw_roles = _claim(c, settings.OIDC_ROLES_CLAIM) or []
+    for r in raw_roles if isinstance(raw_roles, list) else []:
         try:
             roles.append(Role(r))
         except ValueError:

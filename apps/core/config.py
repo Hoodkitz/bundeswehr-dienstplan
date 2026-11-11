@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     JWT_AUDIENCE: str = "dienstplan-api"
     ACCESS_TOKEN_MINUTES: int = 15  # Spec Kap. 8: max. 15 Minuten
     OIDC_ISSUER: str = "https://auth.example.invalid"
+    # Production: tokens from the customer's IdP (Keycloak, Entra ID, ...) are verified against its JWKS.
+    OIDC_JWKS_URL: str = ""              # e.g. https://idp.example/realms/bw/protocol/openid-connect/certs
+    OIDC_ALGORITHMS: str = "RS256,ES256"
+    OIDC_TENANT_CLAIM: str = "tenant_id"  # claim carrying the tenant UUID (IdP mapper)
+    OIDC_ROLES_CLAIM: str = "roles"       # dotted path allowed, e.g. realm_access.roles
 
     CORS_ORIGINS: str = "http://localhost:3000"
     SOLVER_TIME_LIMIT_SECONDS: float = 5.0
@@ -28,5 +33,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if not settings.dev_endpoints_enabled and (settings.JWT_SECRET == "dev-secret-change-me" or len(settings.JWT_SECRET) < 32):
-    raise RuntimeError("JWT_SECRET (>= 32 Zeichen) muss ausserhalb von ENV=dev/test gesetzt werden")
+if not settings.dev_endpoints_enabled and not settings.OIDC_JWKS_URL and (
+        settings.JWT_SECRET == "dev-secret-change-me" or len(settings.JWT_SECRET) < 32):
+    raise RuntimeError("Ausserhalb von ENV=dev/test: OIDC_JWKS_URL setzen oder JWT_SECRET (>= 32 Zeichen)")
