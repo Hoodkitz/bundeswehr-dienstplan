@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    ENV: str = "dev"  # dev | test | prod
+    ENV: str = "prod"  # dev | test | prod  (Default fail-closed)
     DATABASE_URL: str = "sqlite+aiosqlite:///./dienstplan-dev.db"
     AUTO_CREATE_TABLES: bool = True
 
@@ -28,5 +28,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if settings.ENV == "prod" and settings.JWT_SECRET == "dev-secret-change-me":
-    raise RuntimeError("JWT_SECRET muss in Produktion gesetzt werden")
+if not settings.dev_endpoints_enabled and (settings.JWT_SECRET == "dev-secret-change-me" or len(settings.JWT_SECRET) < 32):
+    raise RuntimeError("JWT_SECRET (>= 32 Zeichen) muss ausserhalb von ENV=dev/test gesetzt werden")
