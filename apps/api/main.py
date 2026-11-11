@@ -13,7 +13,7 @@ VERSION = "0.2.0"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if settings.AUTO_CREATE_TABLES:
+    if settings.AUTO_CREATE_TABLES or (settings.AUTO_CREATE_TABLES is None and settings.dev_endpoints_enabled):
         await init_models()
     yield
 

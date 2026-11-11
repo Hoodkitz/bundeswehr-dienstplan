@@ -11,8 +11,8 @@ BEGIN
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format($p$CREATE POLICY tenant_isolation ON %I FOR ALL TO application_user
-        USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid)
-        WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true)::uuid)$p$, t);
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid)$p$, t);
   END LOOP;
 END $$;
 

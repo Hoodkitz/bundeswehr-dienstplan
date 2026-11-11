@@ -1,7 +1,8 @@
 """Async DB-Engine und tenant-scoped Sessions (SET LOCAL fuer Postgres-RLS)."""
 from collections.abc import AsyncIterator
 
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from apps.core.config import settings
@@ -16,10 +17,26 @@ async def init_models() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
+_SET = text("SELECT set_config('app.current_tenant_id', :t, true)")
+
+
+@event.listens_for(Session, "after_begin")
+def _apply_tenant_context(session: Session, transaction, connection) -> None:
+    """RLS-Kontext in JEDER Transaktion der Session setzen (auch nach commit()).
+
+    set_config(..., true) gilt nur transaktionslokal (kein Leak ueber den Connection-Pool); ohne diesen Hook
+    saehe jede Abfrage nach dem ersten commit() keine Zeilen mehr bzw. Inserts verletzten die Policy.
+    """
+    tid = session.info.get("tenant_id")
+    if tid and connection.dialect.name == "postgresql":
+        connection.execute(_SET, {"t": tid})
+
+
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
-    """Transaktionslokal; verhindert Kontext-Leaks bei Connection-Pool-Wiederverwendung."""
-    if session.bind.dialect.name == "postgresql":
-        await session.execute(text("SELECT set_config('app.current_tenant_id', :t, true)"), {"t": tenant_id})
+    """Mandant fuer diese Session festlegen; gilt fuer die laufende und alle folgenden Transaktionen."""
+    session.info["tenant_id"] = str(tenant_id)
+    if session.bind.dialect.name == "postgresql" and session.in_transaction():
+        await session.execute(_SET, {"t": str(tenant_id)})
 
 
 async def raw_session() -> AsyncIterator[AsyncSession]:

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     ENV: str = "prod"  # dev | test | prod  (Default fail-closed)
     DATABASE_URL: str = "sqlite+aiosqlite:///./dienstplan-dev.db"
-    AUTO_CREATE_TABLES: bool = True
+    AUTO_CREATE_TABLES: bool | None = None  # None: only in dev/test; production uses `alembic upgrade head`
 
     # Token-Validierung. In Produktion stellt der OIDC-Provider (Authorization Code + PKCE)
     # die Tokens aus; die API validiert sie nur. HS256 ist fuer dev/test gedacht.

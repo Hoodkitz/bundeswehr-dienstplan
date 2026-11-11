@@ -25,6 +25,35 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 .
       - name: Tests
         run: pytest -q
+  postgres-rls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: owner
+          POSTGRES_PASSWORD: owner
+          POSTGRES_DB: dienstplan
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      ENV: test
+      PG_TEST_OWNER_URL: postgresql+asyncpg://owner:owner@localhost:5432/dienstplan
+      PG_TEST_APP_URL: postgresql+asyncpg://application_user:app@localhost:5432/dienstplan
+      PG_APP_URL: postgresql://application_user:app@localhost:5432/dienstplan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest httpx
+      - name: Migrate as owner
+        run: DATABASE_URL=$PG_TEST_OWNER_URL alembic upgrade head && DATABASE_URL=$PG_TEST_OWNER_URL alembic check
+      - run: PGPASSWORD=owner psql -h localhost -U owner -d dienstplan -c "ALTER ROLE application_user LOGIN PASSWORD 'app'"
+      - name: Full API suite as RLS-restricted app role
+        run: pytest -q tests/api tests/integration
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 15
