@@ -183,17 +183,29 @@ async def create_trade(req: TradeCreate, user: CurrentUser = Depends(require(P.T
 async def list_trades(user: CurrentUser = Depends(require(P.TRADE_REQUEST)),
                       db: AsyncSession = Depends(get_db)):
     me = await soldat_of_user(db, user)
-    return (await db.execute(select(TradeRequest).where(
+    rows = (await db.execute(select(TradeRequest).where(
         TradeRequest.tenant_id == user.tenant_id,
         (TradeRequest.von_soldat_id == me.id) | (TradeRequest.an_soldat_id == me.id)))).scalars().all()
+    return await _with_names(db, user, rows, me.id)
+
+
+async def _with_names(db: AsyncSession, user: CurrentUser, rows, me_id=None) -> list[TradeOut]:
+    """Soldiers cannot read the personnel list: the names of both parties come with the trade."""
+    ids = {r.von_soldat_id for r in rows} | {r.an_soldat_id for r in rows}
+    names = {s.id: f"{s.dienstgrad} {s.nachname}" for s in (await db.execute(
+        select(Soldat).where(Soldat.tenant_id == user.tenant_id, Soldat.id.in_(ids)))).scalars()} if ids else {}
+    return [TradeOut.model_validate(r).model_copy(update={
+        "von_name": names.get(r.von_soldat_id), "an_name": names.get(r.an_soldat_id),
+        "an_mich": me_id is not None and r.an_soldat_id == me_id}) for r in rows]
 
 
 @router.get("/roster/trades/pending", response_model=list[TradeOut])
 async def pending_trades(user: CurrentUser = Depends(require(P.TRADE_DECIDE)), db: AsyncSession = Depends(get_db)):
     """Offene/angenommene Tauschanfragen der Einheit – zur Entscheidung durch Planer/Vorgesetzte."""
-    return (await db.execute(select(TradeRequest).where(
+    rows = (await db.execute(select(TradeRequest).where(
         TradeRequest.tenant_id == user.tenant_id,
         TradeRequest.status.in_([TradeStatus.OFFEN.value, TradeStatus.ANGENOMMEN.value])))).scalars().all()
+    return await _with_names(db, user, rows)
 
 
 @router.post("/roster/trades/{trade_id}/accept", response_model=TradeOut)

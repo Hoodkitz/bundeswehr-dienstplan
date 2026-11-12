@@ -33,8 +33,10 @@ def test_second_plan_respects_first_published_plan(client, tenant):
 
 
 def test_weekly_cap_is_hard_and_respected_by_can_take():
+    from datetime import datetime
     sol = c.Soldier("s1")
-    shifts = [c.Shift(f"x{i}", START + timedelta(days=i), START + timedelta(days=i, hours=12), soldat_id="s1")
+    monday = datetime(2026, 11, 16)  # fixed ISO week: the test must not depend on today's weekday
+    shifts = [c.Shift(f"x{i}", monday + timedelta(days=i), monday + timedelta(days=i, hours=12), soldat_id="s1")
               for i in range(5)]
     score, v = c.evaluate(shifts, {"s1": sol})
     assert not score.feasible and any(x.constraint == "bereitschaftsDeckelung" for x in v)
@@ -86,3 +88,41 @@ def test_login_id_unique_per_tenant(client, tenant):
     assert r.status_code == 409
     lst = client.get("/api/v1/soldaten", headers=H("planer")).json()
     assert lst[0]["user_sub"] == "soldat-0"
+
+
+def test_failed_replan_keeps_published_plan(client, tenant):
+    tid, H = tenant
+    ids = setup_soldaten(client, H, n=6)
+    job_id = create_job(client, H, key="replan-keep-01").json()["id"]
+    _approve(client, H, job_id)
+    before = {s["id"]: s["soldat_id"] for s in client.get(f"/api/v1/jobs/roster/{job_id}", headers=H("planer")).json()["schichten"]}
+    # everybody falls ill -> no feasible re-plan exists
+    for sid in ids:
+        client.post("/api/v1/abwesenheiten", headers=H("planer"), json={
+            "soldat_id": sid, "typ": "KRANK", "start": START.isoformat(), "ende": (START + timedelta(days=5)).isoformat()})
+    r = client.post(f"/api/v1/jobs/roster/{job_id}/replan", headers=H("planer"), json={"referenzzeit": (START - timedelta(days=2)).isoformat()})
+    assert r.status_code == 202, r.text
+    job = client.get(f"/api/v1/jobs/roster/{job_id}", headers=H("planer")).json()
+    assert job["status"] == "PUBLISHED"
+    assert {s["id"]: s["soldat_id"] for s in job["schichten"]} == before
+    assert any("Umplanung" in w for w in job["warnings"])
+
+
+def test_approve_rechecks_against_new_absences(client, tenant):
+    tid, H = tenant
+    ids = setup_soldaten(client, H, n=6)
+    job_id = create_job(client, H, key="approve-recheck").json()["id"]
+    job = client.get(f"/api/v1/jobs/roster/{job_id}", headers=H("planer")).json()
+    victim = job["schichten"][0]["soldat_id"]
+    client.post("/api/v1/abwesenheiten", headers=H("planer"), json={
+        "soldat_id": victim, "typ": "KRANK", "start": START.isoformat(), "ende": (START + timedelta(days=5)).isoformat()})
+    r = client.post(f"/api/v1/jobs/roster/{job_id}/approve", headers=H("vorgesetzter"))
+    assert r.status_code == 409 and "nicht mehr zulaessig" in r.text
+
+
+def test_patch_rejects_nulls_and_datev_job_list(client, tenant):
+    tid, H = tenant
+    ids = setup_soldaten(client, H, n=1)
+    assert client.patch(f"/api/v1/soldaten/{ids[0]}", headers=H("planer"), json={"qualifikationen": None}).status_code == 422
+    assert client.patch(f"/api/v1/soldaten/{ids[0]}", headers=H("planer"), json={"user_sub": None}).status_code == 200
+    assert client.get("/api/v1/exports/datev/jobs", headers=H("admin")).json() == []

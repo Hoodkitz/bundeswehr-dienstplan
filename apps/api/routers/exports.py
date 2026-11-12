@@ -44,6 +44,16 @@ async def create_datev_export(req: DatevExportCreate, background: BackgroundTask
     return entry
 
 
+@router.get("/datev/jobs")
+async def exportable_jobs(user: CurrentUser = Depends(require(P.EXPORT_DATEV)), db: AsyncSession = Depends(get_db)):
+    """Published plans that can be exported (for roles that may export but not read plan details)."""
+    rows = (await db.execute(select(RosterJob).where(RosterJob.tenant_id == user.tenant_id,
+                                                     RosterJob.status == S.PUBLISHED.value)
+                             .order_by(RosterJob.zeitraum_start.desc()))).scalars().all()
+    return [{"id": str(j.id), "zeitraum_start": j.zeitraum_start, "zeitraum_ende": j.zeitraum_ende,
+             "version": j.version} for j in rows]
+
+
 @router.get("/datev", response_model=list[DatevExportOut])
 async def list_datev_exports(user: CurrentUser = Depends(require(P.EXPORT_DATEV)), db: AsyncSession = Depends(get_db)):
     return (await db.execute(select(DatevOutbox).where(DatevOutbox.tenant_id == user.tenant_id)

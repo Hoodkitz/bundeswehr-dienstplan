@@ -49,6 +49,16 @@ class SoldatCreate(BaseModel):
 
 
 class SoldatUpdate(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _no_nulls(cls, data):
+        """Only the login assignment may be cleared with null; other fields are required in the database."""
+        if isinstance(data, dict):
+            bad = [k for k, v in data.items() if v is None and k != "user_sub"]
+            if bad:
+                raise ValueError(f"Felder duerfen nicht leer sein: {', '.join(bad)}")
+        return data
+
     dienstgrad: Dienstgrad | None = None
     vorname: str | None = Field(default=None, min_length=1, max_length=100)
     nachname: str | None = Field(default=None, min_length=1, max_length=100)
@@ -180,6 +190,9 @@ class TradeDecision(BaseModel):
 
 class TradeOut(ORM):
     id: uuid.UUID
+    von_name: str | None = None
+    an_name: str | None = None
+    an_mich: bool = False  # the request is addressed to the caller (may accept it)
     schicht_id: uuid.UUID
     von_soldat_id: uuid.UUID
     an_soldat_id: uuid.UUID

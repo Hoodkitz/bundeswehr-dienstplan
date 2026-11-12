@@ -450,8 +450,8 @@ function tradeTable(rows, mine) {
   const st = {OFFEN: "offen", ANGENOMMEN: "vom Kameraden angenommen", GENEHMIGT: "genehmigt", ABGELEHNT: "abgelehnt"};
   if (!rows.length) return `<p class="muted">Keine Anfragen.</p>`;
   return `<div class="scroll"><table><thead><tr><th>Von</th><th>An</th><th>Status</th><th>Begründung</th><th></th></tr></thead><tbody>
-    ${rows.map(t => `<tr><td>${esc(name(t.von_soldat_id))}</td><td>${esc(name(t.an_soldat_id))}</td><td>${esc(st[t.status] || t.status)}</td><td>${esc(t.begruendung || "")}</td><td>
-      ${mine && t.status === "OFFEN" ? `<button data-trade="${esc(t.id)}:accept">Annehmen</button>` : ""}
+    ${rows.map(t => `<tr><td>${esc(t.von_name || name(t.von_soldat_id))}</td><td>${esc(t.an_name || name(t.an_soldat_id))}</td><td>${esc(st[t.status] || t.status)}</td><td>${esc(t.begruendung || "")}</td><td>
+      ${mine && t.an_mich && t.status === "OFFEN" ? `<button data-trade="${esc(t.id)}:accept">Annehmen</button>` : ""}
       ${!mine && t.status === "ANGENOMMEN" ? `<button class="primary" data-trade="${esc(t.id)}:ok">Genehmigen</button>` : ""}
       ${!mine && ["OFFEN", "ANGENOMMEN"].includes(t.status) ? `<button class="danger" data-trade="${esc(t.id)}:no">Ablehnen</button>` : ""}</td></tr>`).join("")}
   </tbody></table></div>`;
@@ -459,8 +459,7 @@ function tradeTable(rows, mine) {
 
 // ------------------------------------------------------------------ DATEV
 async function renderDatev() {
-  const [jobs, exps] = await Promise.all([api("/api/v1/jobs/roster").catch(() => []), api("/api/v1/exports/datev")]);
-  const pub = jobs.filter(j => j.status === "PUBLISHED");
+  const [pub, exps] = await Promise.all([api("/api/v1/exports/datev/jobs"), api("/api/v1/exports/datev")]);
   $("#view").innerHTML = `<form class="card grid3" id="xf"><h2 class="full">Export an die Lohnabrechnung</h2>
       <div><label for="xfJ">Veröffentlichter Dienstplan</label><select id="xfJ">${pub.map(j => `<option value="${esc(j.id)}">${fmtDate(j.zeitraum_start)} – ${fmtDate(j.zeitraum_ende)} (v${j.version})</option>`).join("")}</select></div>
       <div><label for="xfF">Format</label><select id="xfF"><option value="lodas">DATEV LODAS</option><option value="lug">DATEV Lohn und Gehalt</option></select></div>

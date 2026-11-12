@@ -4,6 +4,7 @@ Jeder Schritt wird persistiert (Checkpoint), sodass ein abgebrochener Worker den
 anhand des gespeicherten Status fortsetzen kann. Seiteneffekte vor dem Freigabe-Interrupt
 sind idempotent (Zuweisungen werden vollstaendig ueberschrieben).
 """
+import asyncio
 import logging
 import uuid
 from datetime import datetime, time, timedelta
@@ -94,6 +95,14 @@ async def run_pipeline(tenant_id: uuid.UUID, job_id: uuid.UUID, start_at: S = S.
             log.exception("Planungslauf %s fehlgeschlagen", job_id)
             await session.rollback()
             job = await load_job(session, tenant_id, job_id)
+            if start_at == S.REALTIME_REPLANNING:  # rollback kept the old assignments: plan stays valid
+                job.status = S.PUBLISHED.value
+                for row in job.schichten:
+                    row.pinned = False
+                job.warnings = list(job.warnings or []) + [f"Umplanung fehlgeschlagen ({type(e).__name__}) – "
+                                                           "veroeffentlichter Plan unveraendert"]
+                await session.commit()
+                return
             job.status = S.FAILED.value
             job.warnings = list(job.warnings or []) + [f"Interner Fehler: {type(e).__name__}"]
             await session.commit()
@@ -130,7 +139,22 @@ async def _run(session: AsyncSession, job: RosterJob, start_at: S) -> None:
 
     await _step(session, job, S.SOLVER_OPTIMIZING)
     modus = AusnahmeModus(job.ausnahme_modus)
-    result = solve(shifts, soldiers, modus, time_limit=settings.SOLVER_TIME_LIMIT_SECONDS)
+    previous = {row.id: row.soldat_id for row in job.schichten}
+    # CPU-bound: run off the event loop so the API stays responsive for everyone else
+    result = await asyncio.to_thread(solve, shifts, soldiers, modus, settings.SOLVER_TIME_LIMIT_SECONDS)
+    if start_at == S.REALTIME_REPLANNING:
+        own = [s for s in result.shifts if not s.id.startswith("ctx:")]
+        if not result.score.feasible or any(s.soldat_id is None for s in own):
+            # A failed re-plan must never destroy the published plan: keep the old assignments, stay PUBLISHED.
+            for row in job.schichten:
+                row.soldat_id = previous[row.id]
+                row.pinned = False
+            await session.refresh(job, ["status"], with_for_update=True)
+            job.status = S.PUBLISHED.value
+            job.warnings = list(job.warnings or []) + [
+                "Umplanung ohne zulaessige Loesung – veroeffentlichter Plan bleibt unveraendert, bitte manuell nacharbeiten"]
+            await session.commit()
+            return
     assignment = {s.id: s.soldat_id for s in result.shifts}
     for row in job.schichten:
         sid = assignment.get(str(row.id))
@@ -158,6 +182,15 @@ async def approve(session: AsyncSession, job: RosterJob, actor: str) -> None:
         raise ValueError("Plan verletzt Hard-Constraints und kann nicht freigegeben werden")
     if any(s.soldat_id is None for s in job.schichten):
         raise ValueError("Plan enthaelt unbesetzte Schichten")
+    # Re-check against the world as it is NOW: plans published or absences entered since the solve
+    own = [to_domain(s) for s in job.schichten]
+    lo, hi = min(x.start for x in own), max(x.end for x in own)
+    shifts = own + await load_context_shifts(session, job.tenant_id, job.id, lo, hi)
+    soldiers = {s.id: s for s in await load_soldiers(session, job.tenant_id, lo, hi)}
+    score, violations = c.evaluate(shifts, soldiers, AusnahmeModus(job.ausnahme_modus))
+    if not score.feasible:
+        hard = [v.detail for v in violations if v.level == c.HARD][:3]
+        raise ValueError("Plan ist inzwischen nicht mehr zulaessig (" + "; ".join(hard) + ") – bitte neu berechnen")
     job.status = check_transition(job.status, S.PUBLISHED).value
     job.approved_by = actor
     job.approved_at = utcnow()
