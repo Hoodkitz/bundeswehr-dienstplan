@@ -55,7 +55,7 @@ class _JWKSCache:
     TIMEOUT = 5
 
     def __init__(self, url: str):
-        self.url, self.keys, self.fetched = url, {}, 0.0
+        self.url, self.keys, self.fetched = url, {}, float("-inf")  # first fetch always allowed (monotonic may be < 60s after boot)
         self._lock = threading.Lock()
 
     def _fetch(self) -> None:
