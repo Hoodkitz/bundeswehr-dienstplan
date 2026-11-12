@@ -87,6 +87,8 @@ async def run_pipeline(tenant_id: uuid.UUID, job_id: uuid.UUID, start_at: S = S.
         job = await load_job(session, tenant_id, job_id)
         if job is None:
             return
+        # last approved assignments: the only thing an aborted/failed re-plan may fall back to
+        approved = {row.id: row.soldat_id for row in job.schichten} if start_at == S.REALTIME_REPLANNING else {}
         try:
             await _run(session, job, start_at)
         except Aborted:
@@ -95,10 +97,12 @@ async def run_pipeline(tenant_id: uuid.UUID, job_id: uuid.UUID, start_at: S = S.
             log.exception("Planungslauf %s fehlgeschlagen", job_id)
             await session.rollback()
             job = await load_job(session, tenant_id, job_id)
-            if start_at == S.REALTIME_REPLANNING:  # rollback kept the old assignments: plan stays valid
-                job.status = S.PUBLISHED.value
+            if start_at == S.REALTIME_REPLANNING:
+                # intermediate steps may already have committed new assignments: restore the approved ones
                 for row in job.schichten:
+                    row.soldat_id = approved.get(row.id, row.soldat_id)
                     row.pinned = False
+                job.status = S.PUBLISHED.value
                 job.warnings = list(job.warnings or []) + [f"Umplanung fehlgeschlagen ({type(e).__name__}) – "
                                                            "veroeffentlichter Plan unveraendert"]
                 await session.commit()
