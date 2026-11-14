@@ -70,11 +70,11 @@ async function api(path, opts = {}) {
   await ensureFreshToken();
   const headers = {...(opts.body && !(opts.body instanceof FormData) ? {"Content-Type": "application/json"} : {}),
                    ...(S.token ? {Authorization: "Bearer " + S.token} : {}), ...(opts.headers || {})};
-  const r = await fetch(path, {...opts, headers});
+  const r = await fetch(path, {...opts, headers}).catch(() => { throw new Error("Server nicht erreichbar – bitte Verbindung prüfen und erneut versuchen"); });
   if (r.status === 401) { logout(); throw new Error("Sitzung abgelaufen – bitte neu anmelden"); }
   if (opts.raw) { if (!r.ok) throw new Error(`Fehler ${r.status}`); return r; }
   const data = r.status === 204 ? null : await r.json().catch(() => null);
-  if (!r.ok) throw new Error(errText(data, `Fehler ${r.status}`));
+  if (!r.ok) throw Object.assign(new Error(errText(data, `Fehler ${r.status}`)), {status: r.status});
   return data;
 }
 const post = (p, body, headers) => api(p, {method: "POST", body: JSON.stringify(body ?? {}), headers});
@@ -300,9 +300,9 @@ async function openJob(id) {
   box.innerHTML = `<div class="card">
     <div class="row between"><h2>Dienstplan ${fmtDate(j.zeitraum_start)} – ${fmtDate(j.zeitraum_ende)}</h2><button class="ghost" id="closeJob">Schließen</button></div>
     <p><span class="badge s-${esc(j.status)}">${esc(STATUS[j.status] || j.status)}</span> ${RUNNING.includes(j.status) ? '<span class="spinner" aria-label="läuft"></span>' : ""}
-      · Bewertung ${esc(j.score || "–")} · Version ${j.version}${j.approved_by ? ` · freigegeben von ${esc(j.approved_by)} am ${fmtDT(j.approved_at)}` : ""}</p>
+      · Bewertung ${esc(j.score || "–")} · Version ${j.version}${j.approved_by && j.status === "PUBLISHED" ? ` · freigegeben von ${esc(j.approved_by)} am ${fmtDT(j.approved_at)}` : ""}</p>
     ${j.status === "COMMAND_APPROVAL_INTERRUPT" && !can("roster:approve") ? `<p class="hint">Der Plan ist zulässig und wartet auf die Freigabe durch den Vorgesetzten.</p>` : ""}
-    ${j.status === "MANUAL_REVIEW" ? `<p class="hint bad">Nicht freigabefähig: Personal, Qualifikationen oder Abwesenheiten anpassen und einen neuen Plan berechnen.</p>` : ""}
+    ${j.status === "MANUAL_REVIEW" ? `<p class="hint bad">Nicht freigabefähig: Personal, Qualifikationen oder Abwesenheiten anpassen und einen neuen Plan berechnen. Unbesetzte Schichten entstehen z. B., wenn sonst Ruhezeit oder Wochenhöchstarbeitszeit überschritten würden.</p>` : ""}
     ${hard.length ? `<h3>Verstöße (müssen behoben werden)</h3><ul class="viol">${hard.map(v => `<li><b>${esc(v.constraint)}</b>: ${esc(v.detail)}${v.soldat_id ? ` (${esc(name(v.soldat_id))})` : ""}</li>`).join("")}</ul>` : ""}
     ${j.warnings.length ? `<h3>Hinweise</h3><ul>${j.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
     ${other.length ? `<details><summary>${other.length} weiche Abweichungen (Fairness, Wünsche)</summary><ul>${other.map(v => `<li>${esc(v.constraint)}: ${esc(v.detail)}</li>`).join("")}</ul></details>` : ""}
@@ -404,7 +404,9 @@ async function renderAbwesenheiten() {
 async function renderMeine() {
   let shifts;
   try { shifts = await api("/api/v1/roster/my-shifts"); }
-  catch (err) { $("#view").innerHTML = `<div class="card">${esc(err.message)}<p class="muted">Ihr Login muss vom Planer Ihrem Personaleintrag zugeordnet werden.</p></div>`; return; }
+  catch (err) {
+    $("#view").innerHTML = `<div class="card ${err.status === 404 ? "" : "error"}">${esc(err.message)}${err.status === 404 ? `<p class="muted">Ihr Login muss vom Planer Ihrem Personaleintrag zugeordnet werden.</p>` : ""}</div>`; return;
+  }
   $("#view").innerHTML = `<div class="card"><h2>Meine Dienste</h2>
     ${shifts.length ? `<ul class="mylist">${shifts.map(s => `<li><div><b>${dayName(s.start)} ${fmtDate(s.start)}</b> ${fmtTime(s.start)}–${fmtTime(s.ende)}</div>
       <div>${esc(SCHICHTTYP[s.typ] || s.typ)}${s.ort ? ` · ${esc(s.ort)}` : ""}</div>
