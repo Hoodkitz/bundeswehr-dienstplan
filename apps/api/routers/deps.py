@@ -24,5 +24,5 @@ async def soldat_of_user(session: AsyncSession, user: CurrentUser) -> Soldat:
         select(Soldat).where(Soldat.tenant_id == user.tenant_id, Soldat.user_sub == user.sub)
     )).scalar_one_or_none()
     if s is None:
-        raise HTTPException(404, "Kein Soldatendatensatz mit diesem Benutzer verknuepft")
+        raise HTTPException(404, "Kein Soldatendatensatz mit diesem Benutzer verknüpft")
     return s

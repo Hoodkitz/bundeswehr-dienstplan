@@ -42,3 +42,12 @@ Anmeldung in Produktion über den IdP der Dienststelle (OIDC Authorization Code 
 `OIDC_ISSUER`, `OIDC_JWKS_URL`, `OIDC_CLIENT_ID` (öffentlicher Client, Redirect `https://<host>/app/`),
 `JWT_AUDIENCE`, `OIDC_TENANT_CLAIM` (Mapper auf die Mandanten-UUID), `OIDC_ROLES_CLAIM` (z. B. `realm_access.roles`).
 Mit `ENV=dev` gibt es zusätzlich einen lokalen Test-Login.
+
+## Browser-E2E (Playwright)
+`tests/e2e/test_web_flow.py` startet die App selbst (ENV=dev, temporäre SQLite-DB, freier Port) und testet `/app` headless
+gegen die echte API: Dev-Login, Leerzustände, Personal anlegen, Plan berechnen/freigeben, Wochenhöchstarbeitszeit (48 h) blockiert
+Plan und Freigabe, Umplanung nach Krankmeldung, Mobil-Layout (375 px).
+```bash
+pip install playwright && playwright install chromium   # optional, ohne Playwright werden die Tests übersprungen
+python3 -m pytest --noconftest tests/e2e -q
+```

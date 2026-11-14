@@ -76,7 +76,9 @@ details summary { cursor: pointer; font-weight: 600; }
 .hidden { display: none !important; }
 @media (max-width: 760px) {
   .grid3, .grid6 { grid-template-columns: 1fr; }
-  .who { display: none; }
+  .topbar { flex-wrap: wrap; }
+  .topbar .who { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
+  .brand { flex: 1; }
   main { padding: 10px; }
   nav#tabs button { flex: 1 1 45%; }
 }
